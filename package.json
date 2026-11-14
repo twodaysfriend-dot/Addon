@@ -1,0 +1,16 @@
+{
+  "name": "bedrock-chest-history",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc -p jsconfig.json && node tools/validate.mjs",
+    "test": "node --test tests/*.test.js",
+    "build": "npm run check && npm test && python3 tools/package.py"
+  },
+  "devDependencies": {
+    "@minecraft/server": "2.0.0",
+    "@minecraft/server-ui": "2.0.0",
+    "typescript": "5.8.3"
+  }
+}
