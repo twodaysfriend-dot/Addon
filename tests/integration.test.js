@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-import { state, fixture, interact, entries } from './runtime.js';
+import { state, fixture, interact, entries, hit, holdStick, sample, drain } from './runtime.js';
 import { Item } from './fakes.js';
 
 registerHooks({ resolve(specifier, context, nextResolve) {
@@ -11,157 +11,6 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier, context);
 } });
 await import('../behavior_pack/scripts/main.js');
-
-test('actual interaction handler cancels vanilla UI, transfers selected amount and persists actor/time/item', async () => {
-  const { player, chest, inv, blocks } = fixture();
-  state.answers.push({ selection: 1 }, { selection: 0 }, { formValues: [4] }, { canceled: true });
-  const event = await interact(player, blocks[0]);
-  assert.equal(event.cancel, true);
-  assert.equal(chest.total('minecraft:diamond'), 4);
-  assert.equal(inv.total('minecraft:diamond'), 6);
-  assert.deepEqual(entries().map(e => [e.action, e.status]), [['deposit', 'complete']]);
-  assert.equal(entries()[0].player, '플레이어');
-  assert.equal(entries()[0].amount, 4);
-  assert.equal(entries()[0].item.type, 'minecraft:diamond');
-  assert.ok(Number.isFinite(Date.parse(entries()[0].time)));
-});
-
-test('withdrawal handler records and moves items from chest to player', async () => {
-  const { player, chest, inv, blocks } = fixture();
-  chest.setItem(8, new Item('minecraft:emerald', 7));
-  state.answers.push({ selection: 0 }, { selection: 0 }, { formValues: [3] }, { canceled: true });
-  await interact(player, blocks[0]);
-  assert.equal(chest.total('minecraft:emerald'), 4);
-  assert.equal(inv.total('minecraft:emerald'), 3);
-  assert.equal(entries()[0].action, 'withdraw');
-  assert.equal(entries()[0].amount, 3);
-});
-
-test('failure to persist intent prevents any item movement', async () => {
-  const { player, chest, inv, blocks } = fixture();
-  state.failPending = true;
-  state.answers.push({ selection: 1 }, { selection: 0 }, { formValues: [4] });
-  await interact(player, blocks[0]);
-  assert.equal(chest.total('minecraft:diamond'), 0);
-  assert.equal(inv.total('minecraft:diamond'), 10);
-  assert.equal(entries().length, 0);
-  assert.ok(player.messages.some(message => message.includes('storage full')));
-});
-
-test('completion save failure retains pending evidence and warns that movement occurred', async () => {
-  const { player, chest, blocks } = fixture();
-  state.failCompletion = true;
-  state.answers.push({ selection: 1 }, { selection: 0 }, { formValues: [2] }, { canceled: true });
-  await interact(player, blocks[0]);
-  assert.equal(chest.total('minecraft:diamond'), 2);
-  assert.equal(entries()[0].status, 'pending');
-  assert.ok(player.messages.some(message => message.includes('완료 기록 저장에 실패')));
-});
-
-test('non-admin inspecting with a stick cannot read logs', async () => {
-  const { player, blocks } = fixture();
-  player.isSneaking = true;
-  const event = await interact(player, blocks[0], { itemStack: new Item('minecraft:stick') });
-  assert.equal(event.cancel, true);
-  assert.equal(state.forms.length, 0);
-  assert.ok(player.messages.some(message => message.includes('관리자만')));
-});
-
-test('admin can query persisted history using sneak + stick', async () => {
-  const { player, blocks } = fixture();
-  state.answers.push({ selection: 1 }, { selection: 0 }, { formValues: [2] }, { canceled: true });
-  await interact(player, blocks[0]);
-  player.tags.add('chestlog.admin');
-  player.isSneaking = true;
-  await interact(player, blocks[0], { itemStack: new Item('minecraft:stick') });
-  assert.match(state.forms.at(-1).heading, /상자 기록/);
-  assert.match(state.forms.at(-1).heading, /플레이어별/);
-  assert.ok(state.forms.at(-1).buttons.some(button => button.includes('플레이어')));
-});
-
-test('walking out of reach while a form is open blocks transfer', async () => {
-  const { player, chest, inv, blocks } = fixture();
-  state.answers.push({ selection: 1 }, { selection: 0 }, () => {
-    player.location.x = 100;
-    return { formValues: [2] };
-  });
-  await interact(player, blocks[0]);
-  assert.equal(chest.total('minecraft:diamond'), 0);
-  assert.equal(inv.total('minecraft:diamond'), 10);
-});
-
-test('double chest uses the same journal from either half', async () => {
-  const { player, blocks } = fixture({ double: true });
-  state.answers.push({ selection: 1 }, { selection: 0 }, { formValues: [2] }, { canceled: true });
-  await interact(player, blocks[1]);
-  state.answers.push({ selection: 1 }, { selection: 0 }, { formValues: [2] }, { canceled: true });
-  await interact(player, blocks[0]);
-  assert.equal(state.properties.size, 1);
-  const journal = JSON.parse([...state.properties.values()][0]);
-  assert.equal(journal.positions.length, 2);
-  assert.equal(journal.entries.length, 2);
-});
-
-test('sneaking with a block keeps vanilla placement available', async () => {
-  const { player, blocks } = fixture();
-  player.isSneaking = true;
-  const event = await interact(player, blocks[0], { itemStack: new Item('minecraft:chest') });
-  assert.equal(event.cancel, false);
-  assert.equal(state.forms.length, 0);
-});
-
-test('another addon cancelling the event does not open a chest here', async () => {
-  const { player, blocks } = fixture();
-  await interact(player, blocks[0], { cancel: true });
-  assert.equal(state.forms.length, 0);
-});
-
-test('opening and closing a chest without moving items saves no log or player group', async () => {
-  const { player, blocks } = fixture();
-  await interact(player, blocks[0]);
-  assert.equal(entries().length, 0);
-  assert.equal(state.properties.size, 0);
-});
-
-test('cancelled quantity selection does not create a log', async () => {
-  const { player, chest, blocks } = fixture();
-  state.answers.push({ selection: 1 }, { selection: 0 }, { canceled: true }, { canceled: true });
-  await interact(player, blocks[0]);
-  assert.equal(entries().length, 0);
-  assert.equal(chest.total('minecraft:diamond'), 0);
-});
-
-test('grouped history selects a player then displays only that player’s transfers', async () => {
-  const { player, blocks } = fixture();
-  state.answers.push({ selection: 1 }, { selection: 0 }, { formValues: [2] }, { canceled: true });
-  await interact(player, blocks[0]);
-  const originalId = player.id;
-  player.id = 'p2'; player.name = '다른사람';
-  state.answers.push({ selection: 1 }, { selection: 0 }, { formValues: [1] }, { canceled: true });
-  await interact(player, blocks[0]);
-  player.id = originalId; player.name = '플레이어';
-  player.tags.add('chestlog.admin'); player.isSneaking = true;
-  state.answers.push({ selection: 0 }, { canceled: true }, { canceled: true });
-  await interact(player, blocks[0], { itemStack: new Item('minecraft:stick') });
-  const detail = state.forms.find(form => form.heading.startsWith('다른사람 '));
-  assert.ok(detail);
-  assert.match(detail.text, /다른사람 · 넣음/);
-  assert.doesNotMatch(detail.text, /플레이어 · 넣음/);
-  assert.match(detail.text, /minecraft:diamond/);
-  assert.match(detail.text, /KST/);
-});
-
-test('old open-only history is hidden after upgrade', async () => {
-  const { player, blocks } = fixture();
-  state.properties.set('chestlog:overworld_0_64_0', JSON.stringify({
-    version: 1, dimension: player.dimension.id, positions: [blocks[0].location], dropped: 0,
-    entries: [{ action: 'open', status: 'complete', player: '예전사람', playerId: 'old', time: '2026-11-14T00:00:00.000Z' }],
-  }));
-  player.tags.add('chestlog.admin'); player.isSneaking = true;
-  await interact(player, blocks[0], { itemStack: new Item('minecraft:stick') });
-  assert.match(state.forms.at(-1).text, /플레이어 0명/);
-  assert.ok(!state.forms.at(-1).buttons.some(text => text.includes('예전사람')));
-});
 
 function place(player, block) { state.after.playerPlaceBlock({ player, block }); }
 function breaking(player, block) {
@@ -256,10 +105,11 @@ test('unreadable explosion list cancels the explosion rather than destroying a c
 });
 
 test('administrator can assign an unknown double chest’s owner with confirmation', async () => {
-  const { player, blocks } = fixture({ double: true });
+  const { player, inv, blocks } = fixture({ double: true });
   player.tags.add('chestlog.admin');
+  holdStick(player, inv);
   state.answers.push({ selection: 4 }, { selection: 0 }, { selection: 0 }, { canceled: true });
-  await interact(player, blocks[0]);
+  await hit(player, blocks[0]);
   player.tags.delete('chestlog.admin');
   assert.equal(breaking(player, blocks[0]).cancel, false);
   assert.equal(breaking(player, blocks[1]).cancel, false);
@@ -267,12 +117,13 @@ test('administrator can assign an unknown double chest’s owner with confirmati
 });
 
 test('revoked admin permission cannot finish an owner assignment', async () => {
-  const { player, blocks } = fixture();
+  const { player, inv, blocks } = fixture();
   player.tags.add('chestlog.admin');
+  holdStick(player, inv);
   state.answers.push({ selection: 4 }, { selection: 0 }, () => {
     player.tags.clear(); return { selection: 0 };
   });
-  await interact(player, blocks[0]);
+  await hit(player, blocks[0]);
   assert.equal(breaking(player, blocks[0]).cancel, true);
 });
 
@@ -285,4 +136,193 @@ test('piston movement invalidates source and destination owner records instead o
   });
   assert.equal(breaking(player, blocks[0]).cancel, true);
   assert.equal(breaking(player, blocks[1]).cancel, true);
+});
+
+test('normal right-click never cancels vanilla access or opens custom forms, including for admins', async () => {
+  const { player, blocks } = fixture();
+  for (const admin of [false, true]) {
+    if (admin) player.tags.add('chestlog.admin');
+    assert.equal((await interact(player, blocks[0])).cancel, false);
+  }
+  assert.equal(state.forms.length, 0);
+  sample();
+  assert.equal(entries().length, 0);
+});
+
+test('sneak + stick right-click also never opens an inspector', async () => {
+  const { player, inv, blocks } = fixture();
+  player.tags.add('chestlog.admin'); holdStick(player, inv);
+  assert.equal((await interact(player, blocks[0], { itemStack: inv.getItem(1) })).cancel, false);
+  assert.equal(state.forms.length, 0);
+});
+
+test('inspection requires admin, sneaking, stick AND left-click', async () => {
+  const { player, inv, blocks } = fixture();
+  await hit(player, blocks[0]);
+  holdStick(player, inv);
+  await hit(player, blocks[0]); // no admin
+  player.tags.add('chestlog.admin'); player.isSneaking = false;
+  await hit(player, blocks[0]);
+  player.isSneaking = true; player.selectedSlotIndex = 0;
+  await hit(player, blocks[0]); // diamond
+  assert.equal(state.forms.length, 0);
+  player.selectedSlotIndex = 1;
+  await hit(player, blocks[0]);
+  assert.match(state.forms[0].heading, /플레이어별/);
+});
+
+test('admin inspection cancels instant creative breaking and repeated hits are deduplicated', async () => {
+  const { player, inv, blocks } = fixture();
+  player.tags.add('chestlog.admin'); holdStick(player, inv);
+  player.getGameMode = () => 'Creative';
+  assert.equal(breaking(player, blocks[0]).cancel, true);
+  await hit(player, blocks[0]);
+  await drain();
+  assert.equal(state.forms.length, 1);
+  await hit(player, blocks[0]);
+  assert.equal(state.forms.length, 1);
+});
+
+test('vanilla deposit is observed as a player inference without altering inventories', async () => {
+  const { player, inv, chest, blocks } = fixture();
+  await interact(player, blocks[0]);
+  // The game, not the addon, performs this transfer.
+  chest.setItem(0, new Item('minecraft:diamond', 4));
+  inv.setItem(0, new Item('minecraft:diamond', 6));
+  sample();
+  assert.equal(chest.total('minecraft:diamond'), 4);
+  assert.equal(inv.total('minecraft:diamond'), 6);
+  assert.equal(entries().length, 1);
+  assert.equal(entries()[0].action, 'deposit');
+  assert.equal(entries()[0].amount, 4);
+  assert.equal(entries()[0].playerId, player.id);
+  assert.equal(entries()[0].attribution, 'inferred');
+  sample();
+  assert.equal(entries().length, 1, 'unchanged samples must not duplicate the record');
+});
+
+test('vanilla withdrawal is observed with matching inventory gain', async () => {
+  const { player, inv, chest, blocks } = fixture();
+  chest.setItem(0, new Item('minecraft:emerald', 8));
+  await interact(player, blocks[0]);
+  chest.setItem(0, new Item('minecraft:emerald', 3));
+  inv.setItem(2, new Item('minecraft:emerald', 5));
+  sample();
+  assert.equal(entries()[0].action, 'withdraw');
+  assert.equal(entries()[0].amount, 5);
+  assert.equal(entries()[0].playerId, player.id);
+});
+
+test('hopper-like change without a matching player delta is unassigned', async () => {
+  const { player, chest, blocks } = fixture();
+  await interact(player, blocks[0]);
+  chest.setItem(0, new Item('minecraft:iron_ingot', 1));
+  sample();
+  assert.equal(entries()[0].attribution, 'unattributed');
+  assert.equal(entries()[0].playerId, '');
+});
+
+test('simultaneous same-item transfers are not attributed to either player', async () => {
+  const { player, inv, chest, blocks } = fixture();
+  const secondInv = new (inv.constructor)(36, { 0: new Item('minecraft:diamond', 10) });
+  const other = { ...player, id: 'p2', name: '다른사람', getComponent: () => ({ container: secondInv }) };
+  state.players.push(other);
+  await interact(player, blocks[0]);
+  await interact(other, blocks[0]);
+  chest.setItem(0, new Item('minecraft:diamond', 8));
+  inv.setItem(0, new Item('minecraft:diamond', 6));
+  secondInv.setItem(0, new Item('minecraft:diamond', 6));
+  sample();
+  assert.equal(entries()[0].attribution, 'unattributed');
+  assert.equal(entries()[0].amount, 8);
+});
+
+test('slot rearrangements and opening without moving items produce no log', async () => {
+  const { player, chest, blocks } = fixture();
+  chest.setItem(0, new Item('minecraft:diamond', 5));
+  await interact(player, blocks[0]); sample();
+  chest.setItem(0, undefined); chest.setItem(10, new Item('minecraft:diamond', 5));
+  sample();
+  assert.equal(entries().length, 0);
+});
+
+test('save failure leaves vanilla access intact and retries without duplicate entries', async () => {
+  const { player, inv, chest, blocks } = fixture();
+  await interact(player, blocks[0]);
+  chest.setItem(0, new Item('minecraft:diamond', 2)); inv.setItem(0, new Item('minecraft:diamond', 8));
+  state.failCompletion = true; sample();
+  assert.equal(entries().length, 0);
+  assert.equal(chest.total('minecraft:diamond'), 2);
+  state.failCompletion = false; sample(); sample();
+  assert.equal(entries().length, 1);
+  assert.equal(entries()[0].amount, 2);
+});
+
+test('destroying a watched chest does not manufacture a withdrawal', async () => {
+  const { player, chest, blocks } = fixture();
+  chest.setItem(0, new Item('minecraft:diamond', 5));
+  await interact(player, blocks[0]);
+  state.after.playerBreakBlock({ block: blocks[0], brokenBlockPermutation: { type: { id: 'minecraft:chest' } } });
+  chest.setItem(0, undefined); sample();
+  assert.equal(entries().length, 0);
+});
+
+test('sessions expire and leaving players do not remain attribution candidates', async () => {
+  const { player, chest, blocks } = fixture();
+  await interact(player, blocks[0]);
+  sample(6001);
+  chest.setItem(0, new Item('minecraft:diamond', 2)); sample();
+  assert.equal(entries().length, 0);
+  await interact(player, blocks[0]);
+  state.after.playerLeave({ playerId: player.id });
+  chest.setItem(0, new Item('minecraft:diamond', 3)); sample();
+  assert.equal(entries().length, 0);
+});
+
+test('inspector displays player-grouped inferred records with an explicit uncertainty label', async () => {
+  const { player, inv, chest, blocks } = fixture();
+  await interact(player, blocks[0]);
+  chest.setItem(0, new Item('minecraft:diamond', 2)); inv.setItem(0, new Item('minecraft:diamond', 8)); sample();
+  player.tags.add('chestlog.admin'); holdStick(player, inv);
+  state.answers.push({ selection: 0 }, { canceled: true }, { canceled: true });
+  await hit(player, blocks[0]);
+  const detail = state.forms.find(form => form.heading.startsWith('플레이어 '));
+  assert.ok(detail);
+  assert.match(detail.text, /행위자 추정/);
+  assert.match(detail.text, /minecraft:diamond/);
+  assert.match(detail.text, /KST/);
+});
+
+test('inspection of either double-chest half resolves the same history', async () => {
+  const { player, inv, chest, blocks } = fixture({ double: true });
+  await interact(player, blocks[1]);
+  chest.setItem(40, new Item('minecraft:diamond', 2)); inv.setItem(0, new Item('minecraft:diamond', 8)); sample();
+  assert.equal([...state.properties.keys()].filter(key => key.startsWith('chestlog:')).length, 1);
+  player.tags.add('chestlog.admin'); holdStick(player, inv);
+  await hit(player, blocks[0]);
+  assert.ok(state.forms[0].buttons.some(text => text.includes('플레이어')));
+});
+
+test('replacing a chest at the same coordinates resets the observer without manufacturing transfers', async () => {
+  const { player, chest, blocks } = fixture();
+  chest.setItem(0, new Item('minecraft:diamond', 5));
+  await interact(player, blocks[0]);
+  chest.setItem(0, undefined);
+  state.after.playerPlaceBlock({ player, block: blocks[0] });
+  sample();
+  assert.equal(entries().length, 0);
+});
+
+test('switching between chests within one sampling interval does not assign a shared inventory delta', async () => {
+  const { player, inv, chest, blocks } = fixture();
+  const otherContainer = new (inv.constructor)(27);
+  const otherBlock = { ...blocks[0], location: { x: 3, y: 64, z: 0 }, getComponent: () => ({ container: otherContainer }) };
+  blocks.push(otherBlock);
+  await interact(player, blocks[0]);
+  chest.setItem(0, new Item('minecraft:diamond', 2)); inv.setItem(0, new Item('minecraft:diamond', 8));
+  await interact(player, otherBlock);
+  otherContainer.setItem(0, new Item('minecraft:diamond', 1)); inv.setItem(0, new Item('minecraft:diamond', 7));
+  sample();
+  assert.ok(entries().length > 0);
+  assert.ok(entries().every(entry => entry.attribution === 'unattributed'));
 });

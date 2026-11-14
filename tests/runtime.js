@@ -1,14 +1,15 @@
 import { Inventory, Item } from './fakes.js';
-export const state = { properties: new Map(), scheduled: [], forms: [], answers: [], handler: null, failPending: false, failCompletion: false, before: {}, after: {}, players: [] };
+export const state = { properties: new Map(), scheduled: [], forms: [], answers: [], handler: null, failPending: false, failCompletion: false, before: {}, after: {}, players: [], tick: 0, intervals: [] };
 export const world = {
   beforeEvents: {
     playerInteractWithBlock: { subscribe(handler) { state.handler = handler; } },
     playerBreakBlock: { subscribe(handler) { state.before.playerBreakBlock = handler; } },
     explosion: { subscribe(handler) { state.before.explosion = handler; } },
   },
-  afterEvents: Object.fromEntries(['playerPlaceBlock', 'playerBreakBlock', 'pistonActivate'].map(name =>
+  afterEvents: Object.fromEntries(['playerPlaceBlock', 'playerBreakBlock', 'pistonActivate', 'entityHitBlock', 'playerLeave'].map(name =>
     [name, { subscribe(handler) { state.after[name] = handler; } }])),
   getAllPlayers: () => state.players,
+  getDimension: id => state.players.find(p => p.dimension.id === id)?.dimension,
   getDynamicProperty: key => state.properties.get(key),
   getDynamicPropertyIds: () => [...state.properties.keys()],
   setDynamicProperty(key, value) {
@@ -20,7 +21,11 @@ export const world = {
     state.properties.set(key, value);
   },
 };
-export const system = { run(callback) { state.scheduled.push(callback); } };
+export const system = {
+  get currentTick() { return state.tick; },
+  run(callback) { state.scheduled.push(callback); },
+  runInterval(callback) { state.intervals.push(callback); },
+};
 export const GameMode = { Spectator: 'Spectator' };
 export const BlockTypes = { get(type) { return ['minecraft:chest', 'minecraft:stone'].includes(type) ? { id: type } : undefined; } };
 
@@ -41,6 +46,8 @@ export class ActionFormData extends Form {}
 export class ModalFormData extends Form {}
 
 export function fixture({ double = false } = {}) {
+  for (const player of state.players) state.after.playerLeave?.({ playerId: player.id });
+  state.tick += 100;
   state.properties.clear();
   state.scheduled.length = state.forms.length = state.answers.length = 0;
   state.failPending = state.failCompletion = false;
@@ -54,7 +61,7 @@ export function fixture({ double = false } = {}) {
     getComponent() { return { container: chest }; },
   }));
   const player = {
-    id: 'p1', name: '플레이어', isValid: true, isSneaking: false,
+    id: 'p1', name: '플레이어', typeId: 'minecraft:player', isValid: true, isSneaking: false, selectedSlotIndex: 0,
     location: { x: 0.5, y: 64, z: 1.5 }, dimension, tags: new Set(), messages: [],
     getGameMode() { return 'Survival'; },
     hasTag(tag) { return this.tags.has(tag); },
@@ -73,3 +80,21 @@ export async function interact(player, block, extra = {}) {
   return event;
 }
 export const entries = () => [...state.properties.values()].flatMap(raw => JSON.parse(raw).entries ?? []);
+
+export async function drain() {
+  while (state.scheduled.length) state.scheduled.shift()();
+  for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve));
+}
+export function sample(ticks = 5) {
+  state.tick += ticks;
+  for (const callback of state.intervals) callback();
+}
+export async function hit(player, block) {
+  state.after.entityHitBlock({ damagingEntity: player, hitBlock: block });
+  await drain();
+}
+export function holdStick(player, inventory) {
+  inventory.setItem(1, new Item('minecraft:stick'));
+  player.selectedSlotIndex = 1;
+  player.isSneaking = true;
+}

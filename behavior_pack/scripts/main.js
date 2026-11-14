@@ -1,6 +1,8 @@
-import { world, system, BlockTypes, GameMode } from '@minecraft/server';
-import { ActionFormData, ModalFormData } from '@minecraft/server-ui';
-import { ADMIN_TAG, PREFIX, MAX_CHESTS, describeItem, groupByPlayer, planTransfer, applyTransfer, appendEntry, koreaTime } from './core.js';
+import { world, system, GameMode } from '@minecraft/server';
+import { ActionFormData } from '@minecraft/server-ui';
+import { ADMIN_TAG, PREFIX, MAX_CHESTS, groupByPlayer, appendEntry, koreaTime } from './core.js';
+
+import { ChestWatcher } from './watcher.js';
 
 /** @typedef {import('@minecraft/server').Player} Player */
 /** @typedef {import('@minecraft/server').Vector3} Vector3 */
@@ -20,7 +22,7 @@ function coordinates(p) { return `${p.x}, ${p.y}, ${p.z}`; }
 /** @param {string} dimension @param {Vector3} p */
 function keyFor(dimension, p) { return `${PREFIX}${dimension.replace('minecraft:', '')}_${p.x}_${p.y}_${p.z}`; }
 
-/** Resolve again after every form response; never retain a stale Container across awaits.
+/** Revalidate range and topology before administrative operations.
  * @param {Player} player @param {Target} target
  */
 function resolve(player, target) {
@@ -30,7 +32,12 @@ function resolve(player, target) {
       Math.hypot(p.x - target.position.x - 0.5, p.y - target.position.y - 0.5, p.z - target.position.z - 0.5) > 8) {
     throw new Error('상자 가까이에서 다시 이용해 주세요.');
   }
-  const dimension = player.dimension;
+  return resolveChest(target);
+}
+
+/** @param {Target} target */
+function resolveChest(target) {
+  const dimension = world.getDimension(target.dimension);
   const block = dimension.getBlock(target.position);
   if (!block || block.typeId !== target.type || !CHESTS.has(block.typeId)) throw new Error('상자가 없어졌거나 변경되었습니다.');
   const container = block.getComponent('minecraft:inventory')?.container;
@@ -69,92 +76,25 @@ function journalFor(chest) {
   const found = load(chest.key);
   if (found) return found;
   if (world.getDynamicPropertyIds().filter(id => id.startsWith(PREFIX)).length >= MAX_CHESTS) {
-    throw new Error('기록 상자 한도(1024개)에 도달했습니다. 새 상자 이용이 차단됩니다.');
+    throw new Error('기록 상자 한도(1024개)에 도달했습니다. 새 상자의 기록을 저장할 수 없습니다. 바닐라 이용은 유지됩니다.');
   }
   return { version: 1, dimension: chest.dimension, positions: chest.positions, dropped: 0, entries: [] };
 }
-/** @param {Player} player @param {Entry['action']} action @returns {Entry} */
-function newEntry(player, action) {
-  return { time: new Date().toISOString(), player: player.name, playerId: player.id, action, status: 'complete' };
-}
-/** @param {Resolved} chest @param {Entry} entry */
-function record(chest, entry) {
-  const journal = appendEntry(journalFor(chest), entry);
+/** Batch a sample into one world-property write, keeping vanilla inventory untouched.
+ * @param {Resolved} chest @param {Entry[]} entries
+ */
+function recordBatch(chest, entries) {
+  let journal = journalFor(chest);
+  for (const entry of entries) journal = appendEntry(journal, entry);
   world.setDynamicProperty(chest.key, JSON.stringify(journal));
-  return journal;
 }
-/** @param {Player} player */
-function inventory(player) {
-  const container = player.getComponent('minecraft:inventory')?.container;
-  if (!container) throw new Error('인벤토리를 읽을 수 없습니다.');
-  return container;
-}
+
 /** Remove formatting/control characters so item names cannot impersonate audit lines.
  * @param {string} value @param {number} [limit]
  */
 function displayText(value, limit = 80) {
   return value.replace(/§./g, '').replace(/[\r\n\t\u0000-\u001f\u007f]/g, ' ').slice(0, limit);
 }
-/** @param {import('@minecraft/server').ItemStack} item */
-function itemLabel(item) { return `${displayText(item.nameTag || item.typeId.replace('minecraft:', ''))} ×${item.amount}`; }
-
-/** @param {Player} player @param {Target} target @param {string} expectedKey @param {'deposit'|'withdraw'} direction */
-async function chooseItem(player, target, expectedKey, direction) {
-  const chest = resolve(player, target);
-  if (chest.key !== expectedKey) throw new Error('상자 연결이 변경되었습니다. 다시 열어 주세요.');
-  const source = direction === 'deposit' ? inventory(player) : chest.container;
-  const form = new ActionFormData().title(direction === 'deposit' ? '상자에 넣기' : '상자에서 가져가기');
-  /** @type {{slot:number, item:import('@minecraft/server').ItemStack}[]} */
-  const choices = [];
-  for (let slot = 0; slot < source.size; slot++) {
-    const item = source.getItem(slot);
-    if (!item) continue;
-    choices.push({ slot, item });
-    form.button(`[${slot + 1}] ${itemLabel(item)}`);
-  }
-  if (!choices.length) { tell(player, '이동할 아이템이 없습니다.'); return; }
-  form.body('아이템을 선택하세요. 변경된 아이템은 이동하지 않습니다.');
-  const selected = await form.show(player);
-  if (selected.canceled || selected.selection === undefined) return;
-  const choice = choices[selected.selection];
-  if (!choice) return;
-  let amount = 1;
-  if (choice.item.amount > 1) {
-    const count = await new ModalFormData().title('이동 수량')
-      .slider(itemLabel(choice.item), 1, choice.item.amount, { defaultValue: choice.item.amount, valueStep: 1 })
-      .submitButton('이동 및 기록').show(player);
-    if (count.canceled) return;
-    amount = Number(count.formValues?.[0]);
-  }
-  const current = resolve(player, target);
-  if (current.key !== expectedKey) throw new Error('상자 연결이 변경되었습니다. 다시 열어 주세요.');
-  const playerInventory = inventory(player);
-  const from = direction === 'deposit' ? playerInventory : current.container;
-  const to = direction === 'deposit' ? current.container : playerInventory;
-  // Everything below runs synchronously; concurrent form responses are revalidated in order.
-  const plan = planTransfer(from, to, choice.slot, choice.item, amount);
-  /** @type {Entry} */
-  const entry = { ...newEntry(player, direction), item: describeItem(choice.item), amount, status: 'pending' };
-  const journal = record(current, entry); // Persist intent first; if storage fails, move nothing.
-  try {
-    applyTransfer(plan);
-  } catch (error) {
-    entry.status = 'failed';
-    // applyTransfer may report incomplete rollback; preserve that uncertainty in the audit.
-    if (String(error).includes('복구 실패')) entry.status = 'uncertain';
-    world.setDynamicProperty(current.key, JSON.stringify(journal));
-    throw error;
-  }
-  entry.status = 'complete';
-  try { world.setDynamicProperty(current.key, JSON.stringify(journal)); }
-  catch (error) {
-    tell(player, '§c아이템은 이동했지만 완료 기록 저장에 실패했습니다. 관리자가 미확정 기록을 확인해야 합니다.');
-    console.error(`[ChestHistory] completion save failed: ${error}`);
-    return;
-  }
-  tell(player, `${direction === 'deposit' ? '넣기' : '가져가기'} 완료: ${choice.item.typeId} ×${amount}`);
-}
-
 /** @param {Player} player */
 function requireAdmin(player) {
   if (!player.hasTag(ADMIN_TAG)) throw new Error(`관리자만 조회할 수 있습니다. /tag <이름> add ${ADMIN_TAG}`);
@@ -163,7 +103,8 @@ function requireAdmin(player) {
 function formatEntry(entry) {
   const action = { open: '열람 요청', deposit: '넣음', withdraw: '가져감' }[entry.action];
   const state = { complete: '', pending: ' [미확정: 중단/저장 실패 가능]', failed: ' [실패·복구됨]', uncertain: ' [복구 미확정]' }[entry.status];
-  return `${koreaTime(entry.time)}\n${displayText(entry.player)} · ${action}${state}` +
+  const attribution = entry.attribution === 'inferred' ? ' [행위자 추정]' : entry.attribution === 'unattributed' ? ' [행위자 미확인]' : ' [이전 직접 처리]';
+  return `${koreaTime(entry.time)}\n${displayText(entry.player)} · ${action}${state}${attribution}` +
     (entry.item ? `\n${entry.item.type}${entry.item.name ? ` (${displayText(entry.item.name)})` : ''} ×${entry.amount}` +
       (entry.item.damage !== null ? `\n손상도: ${entry.item.damage}` : '') +
       (entry.item.enchantments.length ? `\n인챈트: ${entry.item.enchantments.map(e => `${displayText(e.id)} ${e.level}`).join(', ')}` : '') : '');
@@ -182,12 +123,12 @@ async function entryHistory(player, keys, playerId, issues = false) {
     requireAdmin(player);
     const all = readEntries(keys);
     const group = groupByPlayer(all).find(g => g.id === playerId);
-    const entries = issues ? all.filter(e => e.action !== 'open' && e.status !== 'complete') : group?.entries ?? [];
+    const entries = issues ? all.filter(e => e.action !== 'open' && (e.status !== 'complete' || e.attribution === 'unattributed')) : group?.entries ?? [];
     const pages = Math.max(1, Math.ceil(entries.length / 8));
     page = Math.min(page, pages - 1);
-    const form = new ActionFormData().title(`${issues ? '미확정·오류' : displayText(group?.name ?? '플레이어')} ${page + 1}/${pages}`)
+    const form = new ActionFormData().title(`${issues ? '미확인·오류' : displayText(group?.name ?? '플레이어')} ${page + 1}/${pages}`)
       .body(`기록 ${entries.length}건 · 한국 표준시(KST)\n` +
-        (issues ? '미확정 기록은 실제 이동을 확정할 수 없습니다.\n\n' : '완료된 입출고만 표시합니다.\n\n') +
+        (issues ? '관찰한 수량 변화입니다. 플레이어의 행위로 확정할 수 없습니다.\n\n' : '바닐라 기록의 행위자는 추정이며 자동 장치·동시 이용과 구분이 불완전합니다.\n\n') +
         (entries.slice(page * 8, page * 8 + 8).map(formatEntry).join('\n\n') || '기록이 없습니다.'))
       .button('이전 페이지').button('다음 페이지').button('뒤로');
     const result = await form.show(player);
@@ -198,8 +139,8 @@ async function entryHistory(player, keys, playerId, issues = false) {
   }
 }
 
-/** @param {Player} player @param {string[]} keys */
-async function history(player, keys) {
+/** @param {Player} player @param {string[]} keys @param {Target} [target] */
+async function history(player, keys, target) {
   let page = 0;
   while (player.isValid) {
     requireAdmin(player);
@@ -212,16 +153,20 @@ async function history(player, keys) {
     const form = new ActionFormData().title(`상자 기록 · 플레이어별 ${page + 1}/${pages}`)
       .body(`입출고한 플레이어 ${groups.length}명 · 보존 한도 삭제 ${dropped}건\n` +
         '플레이어를 선택하면 그 사람의 시간·아이템·수량을 볼 수 있습니다.\n' +
-        '열기만 한 경우와 취소·실패한 이동은 일반 기록에 표시하지 않습니다.');
+        '바닐라 관찰 기록의 행위자는 추정입니다. 열기만 한 경우는 기록하지 않습니다.');
     for (const group of visible) form.button(`${displayText(group.name)}\n넣기 ${group.deposits}회 · 가져가기 ${group.withdrawals}회`);
-    form.button('이전').button('다음').button('미확정·오류 기록').button('뒤로');
+    form.button('이전').button('다음').button('미확인·오류 기록').button('전체 상자 기록');
+    if (target) form.button('상자 소유자 지정');
+    form.button('닫기');
     const result = await form.show(player);
-    if (result.canceled || result.selection === undefined || result.selection === visible.length + 3) return;
+    if (result.canceled || result.selection === undefined || result.selection === visible.length + (target ? 5 : 4)) return;
     requireAdmin(player);
     if (result.selection < visible.length) await entryHistory(player, keys, visible[result.selection].id);
     else if (result.selection === visible.length) page = Math.max(0, page - 1);
     else if (result.selection === visible.length + 1) page = Math.min(pages - 1, page + 1);
     else if (result.selection === visible.length + 2) await entryHistory(player, keys, undefined, true);
+    else if (result.selection === visible.length + 3) await allHistory(player);
+    else if (target && result.selection === visible.length + 4) await assignOwner(player, target, resolve(player, target).key);
   }
 }
 
@@ -243,7 +188,7 @@ async function allHistory(player) {
   while (player.isValid) {
     requireAdmin(player);
     const rows = world.getDynamicPropertyIds().filter(id => id.startsWith(PREFIX)).map(key => ({ key, journal: load(key) }))
-      .filter(/** @returns {row is {key:string,journal:Journal}} */ row => row.journal !== undefined && groupByPlayer(row.journal.entries).length > 0)
+      .filter(/** @returns {row is {key:string,journal:Journal}} */ row => row.journal !== undefined && row.journal.entries.some(e => e.action !== 'open'))
       .sort((a, b) => (b.journal.entries.at(-1)?.time ?? '').localeCompare(a.journal.entries.at(-1)?.time ?? ''));
     const pages = Math.max(1, Math.ceil(rows.length / 12));
     page = Math.min(page, pages - 1);
@@ -261,50 +206,53 @@ async function allHistory(player) {
   }
 }
 
-/** @param {Player} player @param {Target} target @param {boolean} inspect */
-async function openChest(player, target, inspect) {
-  let chest = resolve(player, target);
-  const initialKey = chest.key;
-  if (inspect) { requireAdmin(player); await history(player, relatedKeys(chest)); return; }
-  while (player.isValid) {
-    chest = resolve(player, target);
-    if (chest.key !== initialKey) throw new Error('상자 연결이 변경되었습니다. 다시 열어 주세요.');
-    const form = new ActionFormData().title('상자 보관함')
-      .body(`${chest.dimension} · ${chest.positions.map(coordinates).join(' / ')}\n` +
-        `사용 중인 칸: ${chest.container.size - chest.container.emptySlotsCount}/${chest.container.size}\n` +
-        `소유자: ${ownerNames(chest)}\n` +
-        '넣기·가져가기는 플레이어와 수량을 기록합니다.\n기본 상자 화면 대신 이 화면을 사용합니다.')
-      .button('상자에서 가져가기 / 내용 보기').button('내 인벤토리에서 넣기');
-    const admin = player.hasTag(ADMIN_TAG);
-    if (admin) form.button('이 상자 기록 조회').button('전체 상자 기록 목록').button('상자 소유자 지정');
-    form.button('닫기');
-    const response = await form.show(player);
-    if (response.canceled || response.selection === undefined || response.selection === (admin ? 5 : 2)) return;
-    if (response.selection === 0) await chooseItem(player, target, initialKey, 'withdraw');
-    else if (response.selection === 1) await chooseItem(player, target, initialKey, 'deposit');
-    else if (admin && response.selection === 2) await history(player, relatedKeys(resolve(player, target)));
-    else if (admin && response.selection === 3) await allHistory(player);
-    else if (admin && response.selection === 4) await assignOwner(player, target, initialKey);
-  }
-}
+const watcher = new ChestWatcher({
+  readChest: resolveChest,
+  players: () => world.getAllPlayers(),
+  tick: () => system.currentTick,
+  save: recordBatch,
+  error: error => console.warn(`[ChestHistory] observation save failed; vanilla access unchanged: ${error}`),
+});
+system.runInterval(() => watcher.sample(), 5);
 
+// Right-click is never cancelled and never opens a form. Only take a read-only baseline.
 world.beforeEvents.playerInteractWithBlock.subscribe(event => {
-  if (event.cancel || !CHESTS.has(event.block.typeId)) return;
-  // Sneak + a placeable block retains vanilla placement, for building double chests.
-  // Sneaking suppresses vanilla container opening for this path.
-  if (event.player.isSneaking && event.itemStack && BlockTypes.get(event.itemStack.typeId)) return;
-  event.cancel = true;
-  if (!event.isFirstEvent || active.has(event.player.id)) return;
-  const player = event.player;
-  const target = { dimension: event.block.dimension.id, position: { ...event.block.location }, type: event.block.typeId };
-  const inspect = player.isSneaking && event.itemStack?.typeId === 'minecraft:stick';
+  if (event.cancel || !event.isFirstEvent || !CHESTS.has(event.block.typeId) ||
+      (event.player.isSneaking && event.itemStack)) return;
+  try {
+    watcher.observe(event.player, { dimension: event.block.dimension.id, position: { ...event.block.location }, type: event.block.typeId });
+  } catch (error) { console.warn(`[ChestHistory] observation start failed; vanilla access unchanged: ${error}`); }
+});
+
+/** @param {Player} player @param {import('@minecraft/server').ItemStack} [held] */
+function inspectGesture(player, held) {
+  return player.hasTag(ADMIN_TAG) && player.isSneaking &&
+    (held ?? player.getComponent('minecraft:inventory')?.container?.getItem(player.selectedSlotIndex))?.typeId === 'minecraft:stick';
+}
+const inspectCooldown = new Map();
+/** @param {Player} player @param {import('@minecraft/server').Block} block */
+function requestInspection(player, block) {
+  if (active.has(player.id) || (inspectCooldown.get(player.id) ?? -Infinity) > system.currentTick) return;
+  const target = { dimension: block.dimension.id, position: { ...block.location }, type: block.typeId };
   active.add(player.id);
+  inspectCooldown.set(player.id, system.currentTick + 10);
   system.run(() => {
-    openChest(player, target, inspect).catch(error => {
-      tell(player, `§c${error instanceof Error ? error.message : String(error)}`);
-      console.warn(`[ChestHistory] ${error}`);
-    }).finally(() => active.delete(player.id));
+    (async () => {
+      requireAdmin(player);
+      const chest = resolve(player, target);
+      await history(player, relatedKeys(chest), target);
+    })().catch(error => tell(player, `§c${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => active.delete(player.id));
   });
+}
+world.afterEvents.entityHitBlock.subscribe(event => {
+  if (event.damagingEntity.typeId !== 'minecraft:player' || !CHESTS.has(event.hitBlock.typeId)) return;
+  const player = /** @type {Player} */ (event.damagingEntity);
+  if (inspectGesture(player)) requestInspection(player, event.hitBlock);
+});
+world.afterEvents.playerLeave.subscribe(event => {
+  inspectCooldown.delete(event.playerId);
+  watcher.disconnect(event.playerId);
 });
 
 const OWNER_PREFIX = 'chestowner:';
@@ -365,6 +313,7 @@ async function assignOwner(player, target, expectedKey) {
 // Ownership is registered on placement, never on first opening (which would allow claims).
 world.afterEvents.playerPlaceBlock.subscribe(event => {
   if (!CHESTS.has(event.block.typeId)) return;
+  watcher.invalidate(event.block.dimension.id, event.block.location);
   try {
     world.setDynamicProperty(ownerKey(event.block.dimension.id, event.block.location),
       JSON.stringify({ id: event.player.id, name: event.player.name }));
@@ -376,7 +325,13 @@ world.afterEvents.playerPlaceBlock.subscribe(event => {
 });
 
 world.beforeEvents.playerBreakBlock.subscribe(event => {
-  if (event.cancel || !CHESTS.has(event.block.typeId) || event.player.hasTag(ADMIN_TAG)) return;
+  if (event.cancel || !CHESTS.has(event.block.typeId)) return;
+  if (inspectGesture(event.player, event.itemStack)) {
+    event.cancel = true; // Including instant creative breaks: inspection must never destroy the chest.
+    requestInspection(event.player, event.block);
+    return;
+  }
+  if (event.player.hasTag(ADMIN_TAG)) return;
   let allowed = false;
   try {
     const chest = resolve(event.player, { dimension: event.block.dimension.id, position: event.block.location, type: event.block.typeId });
@@ -391,6 +346,7 @@ world.beforeEvents.playerBreakBlock.subscribe(event => {
 
 world.afterEvents.playerBreakBlock.subscribe(event => {
   if (!CHESTS.has(event.brokenBlockPermutation.type.id)) return;
+  watcher.invalidate(event.block.dimension.id, event.block.location);
   try { world.setDynamicProperty(ownerKey(event.block.dimension.id, event.block.location), undefined); }
   catch (error) { console.error(`[ChestHistory] ownership cleanup failed: ${error}`); }
 });
@@ -418,6 +374,7 @@ world.afterEvents.pistonActivate.subscribe(event => {
     for (const position of event.piston.getAttachedBlocksLocations()) {
       for (const sign of [-1, 0, 1]) {
         const p = { x: position.x + sign * direction.x, y: position.y + sign * direction.y, z: position.z + sign * direction.z };
+        watcher.invalidate(event.block.dimension.id, p);
         const key = ownerKey(event.block.dimension.id, p);
         if (world.getDynamicProperty(key) !== undefined) world.setDynamicProperty(key, undefined);
       }

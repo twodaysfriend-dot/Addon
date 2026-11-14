@@ -1,4 +1,4 @@
-/** Pure transaction and journal logic, also exercised by Node tests. */
+/** Inventory observation and journal logic, also exercised by Node tests. */
 /** @typedef {import('@minecraft/server').ItemStack} ItemStack */
 /** @typedef {import('@minecraft/server').Container} Container */
 
@@ -39,65 +39,7 @@ export function describeItem(item) {
 /** @param {ItemStack} item */
 export function fingerprint(item) { return JSON.stringify(describeItem(item)); }
 
-/** @typedef {{ slot: number, before: ItemStack | undefined, after: ItemStack | undefined }} Write */
-/** @typedef {{ source: Container, destination: Container, sourceWrite: Write, writes: Write[], amount: number }} Plan */
-
-/** Build the entire move before changing either inventory. No awaits between planning and commit.
- * @param {Container} source @param {Container} destination @param {number} slot
- * @param {ItemStack} expected @param {number} amount @returns {Plan}
- */
-export function planTransfer(source, destination, slot, expected, amount) {
-  if (source === destination) throw new Error('같은 보관함으로 이동할 수 없습니다.');
-  if (!Number.isInteger(amount) || amount < 1) throw new Error('수량이 올바르지 않습니다.');
-  const current = source.getItem(slot);
-  if (!current || fingerprint(current) !== fingerprint(expected) || current.amount < amount) {
-    throw new Error('아이템이 변경되었습니다. 목록을 다시 열어 주세요.');
-  }
-  let remaining = amount;
-  /** @type {Write[]} */
-  const writes = [];
-  // Fill matching stacks before empty slots, preserving metadata by cloning.
-  for (const emptyPass of [false, true]) {
-    for (let i = 0; i < destination.size && remaining > 0; i++) {
-      const before = destination.getItem(i);
-      if (emptyPass ? before !== undefined : !before || !before.isStackableWith(current)) continue;
-      const capacity = before ? current.maxAmount - before.amount : current.maxAmount;
-      const count = Math.min(capacity, remaining);
-      if (count <= 0) continue;
-      const after = (before ?? current).clone();
-      after.amount = (before?.amount ?? 0) + count;
-      writes.push({ slot: i, before, after });
-      remaining -= count;
-    }
-  }
-  if (remaining) throw new Error('받는 쪽의 공간이 부족합니다. 수량을 줄여 주세요.');
-  const after = current.amount === amount ? undefined : current.clone();
-  if (after) after.amount -= amount;
-  return { source, destination, sourceWrite: { slot, before: current, after }, writes, amount };
-}
-
-/** @param {Plan} plan */
-export function applyTransfer(plan) {
-  /** @type {{container: Container, write: Write}[]} */
-  const attempted = [];
-  try {
-    for (const write of plan.writes) {
-      attempted.push({ container: plan.destination, write });
-      plan.destination.setItem(write.slot, write.after);
-    }
-    attempted.push({ container: plan.source, write: plan.sourceWrite });
-    plan.source.setItem(plan.sourceWrite.slot, plan.sourceWrite.after);
-  } catch (error) {
-    let restored = true;
-    for (const { container, write } of attempted.reverse()) {
-      try { container.setItem(write.slot, write.before); } catch { restored = false; }
-    }
-    if (!restored) throw new Error('복구 실패: 상자와 인벤토리를 관리자가 확인해야 합니다.', { cause: error });
-    throw new Error('아이템 이동 실패. 변경 내용을 복구했습니다.', { cause: error });
-  }
-}
-
-/** @typedef {{time: string, player: string, playerId: string, action: 'open' | 'deposit' | 'withdraw', status: 'complete' | 'pending' | 'failed' | 'uncertain', amount?: number, item?: ReturnType<typeof describeItem>}} Entry */
+/** @typedef {{time: string, player: string, playerId: string, action: 'open' | 'deposit' | 'withdraw', status: 'complete' | 'pending' | 'failed' | 'uncertain', attribution?: 'inferred' | 'unattributed', candidates?: string[], amount?: number, item?: ReturnType<typeof describeItem>}} Entry */
 /** @typedef {{version: number, dimension: string, positions: {x:number,y:number,z:number}[], dropped: number, entries: Entry[]}} Journal */
 /** @param {Journal} journal @param {Entry} entry @returns {Journal} */
 export function appendEntry(journal, entry) {
@@ -122,7 +64,7 @@ export function groupByPlayer(entries) {
   /** @type {Map<string, {id:string, name:string, entries:Entry[], deposits:number, withdrawals:number}>} */
   const groups = new Map();
   for (const entry of [...entries].sort((a, b) => b.time.localeCompare(a.time))) {
-    if (entry.status !== 'complete' || !['deposit', 'withdraw'].includes(entry.action) || !entry.item || !((entry.amount ?? 0) > 0)) continue;
+    if (entry.attribution === 'unattributed' || entry.status !== 'complete' || !['deposit', 'withdraw'].includes(entry.action) || !entry.item || !((entry.amount ?? 0) > 0)) continue;
     const id = entry.playerId || entry.player;
     let group = groups.get(id);
     if (!group) {
@@ -134,4 +76,44 @@ export function groupByPlayer(entries) {
     else group.withdrawals++;
   }
   return [...groups.values()];
+}
+
+/** @typedef {{amount:number, item:ReturnType<typeof describeItem>}} Count */
+/** @typedef {Map<string, Count>} Snapshot */
+/** Count items by full metadata rather than slot, so rearranging items is not a transfer.
+ * @param {Container} container @returns {Snapshot}
+ */
+export function snapshotContainer(container) {
+  /** @type {Snapshot} */
+  const result = new Map();
+  for (let slot = 0; slot < container.size; slot++) {
+    const item = container.getItem(slot);
+    if (!item) continue;
+    const data = describeItem(item);
+    const key = JSON.stringify(data);
+    const previous = result.get(key);
+    result.set(key, { item: data, amount: (previous?.amount ?? 0) + item.amount });
+  }
+  return result;
+}
+/** @param {Snapshot} before @param {Snapshot} after @returns {Snapshot} */
+export function diffSnapshots(before, after) {
+  /** @type {Snapshot} */
+  const changes = new Map();
+  for (const key of new Set([...before.keys(), ...after.keys()])) {
+    const amount = (after.get(key)?.amount ?? 0) - (before.get(key)?.amount ?? 0);
+    if (amount) changes.set(key, { amount, item: /** @type {Count} */ (after.get(key) ?? before.get(key)).item });
+  }
+  return changes;
+}
+/** A unique balanced inventory delta is only evidence for an actor, never proof.
+ * @param {string} key @param {number} amount
+ * @param {{id:string, name:string, delta:Snapshot | undefined, interacted:boolean}[]} players
+ */
+export function inferActor(key, amount, players) {
+  const matchingDirection = players.filter(p => (p.delta?.get(key)?.amount ?? 0) * amount < 0);
+  const candidate = matchingDirection[0];
+  if (players.every(p => p.delta !== undefined) && matchingDirection.length === 1 &&
+      candidate.interacted && candidate.delta?.get(key)?.amount === -amount) return candidate;
+  return undefined;
 }
