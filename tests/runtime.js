@@ -1,14 +1,22 @@
 import { Inventory, Item } from './fakes.js';
-export const state = { properties: new Map(), scheduled: [], forms: [], answers: [], handler: null, failPending: false, failCompletion: false };
+export const state = { properties: new Map(), scheduled: [], forms: [], answers: [], handler: null, failPending: false, failCompletion: false, before: {}, after: {}, players: [] };
 export const world = {
-  beforeEvents: { playerInteractWithBlock: { subscribe(handler) { state.handler = handler; } } },
+  beforeEvents: {
+    playerInteractWithBlock: { subscribe(handler) { state.handler = handler; } },
+    playerBreakBlock: { subscribe(handler) { state.before.playerBreakBlock = handler; } },
+    explosion: { subscribe(handler) { state.before.explosion = handler; } },
+  },
+  afterEvents: Object.fromEntries(['playerPlaceBlock', 'playerBreakBlock', 'pistonActivate'].map(name =>
+    [name, { subscribe(handler) { state.after[name] = handler; } }])),
+  getAllPlayers: () => state.players,
   getDynamicProperty: key => state.properties.get(key),
   getDynamicPropertyIds: () => [...state.properties.keys()],
   setDynamicProperty(key, value) {
+    if (value === undefined) { state.properties.delete(key); return; }
     const journal = JSON.parse(value);
-    const last = journal.entries.at(-1);
-    if (state.failPending && last.status === 'pending') throw new Error('storage full');
-    if (state.failCompletion && last.action !== 'open' && last.status === 'complete') throw new Error('save interrupted');
+    const last = journal.entries?.at(-1);
+    if (state.failPending && last?.status === 'pending') throw new Error('storage full');
+    if (state.failCompletion && last?.status === 'complete') throw new Error('save interrupted');
     state.properties.set(key, value);
   },
 };
@@ -53,6 +61,7 @@ export function fixture({ double = false } = {}) {
     getComponent() { return { container: inv }; },
     sendMessage(message) { this.messages.push(message); },
   };
+  state.players = [player];
   return { player, chest, inv, blocks };
 }
 export async function interact(player, block, extra = {}) {
@@ -63,4 +72,4 @@ export async function interact(player, block, extra = {}) {
   for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve));
   return event;
 }
-export const entries = () => [...state.properties.values()].flatMap(raw => JSON.parse(raw).entries);
+export const entries = () => [...state.properties.values()].flatMap(raw => JSON.parse(raw).entries ?? []);

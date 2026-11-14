@@ -114,3 +114,24 @@ export function appendEntry(journal, entry) {
 export function koreaTime(iso) {
   return new Date(Date.parse(iso) + 9 * 3600000).toISOString().replace('T', ' ').slice(0, 19) + ' KST';
 }
+
+/** Only successful inventory changes belong in the normal player history.
+ * @param {Entry[]} entries
+ */
+export function groupByPlayer(entries) {
+  /** @type {Map<string, {id:string, name:string, entries:Entry[], deposits:number, withdrawals:number}>} */
+  const groups = new Map();
+  for (const entry of [...entries].sort((a, b) => b.time.localeCompare(a.time))) {
+    if (entry.status !== 'complete' || !['deposit', 'withdraw'].includes(entry.action) || !entry.item || !((entry.amount ?? 0) > 0)) continue;
+    const id = entry.playerId || entry.player;
+    let group = groups.get(id);
+    if (!group) {
+      group = { id, name: entry.player, entries: [], deposits: 0, withdrawals: 0 };
+      groups.set(id, group);
+    }
+    group.entries.push(entry);
+    if (entry.action === 'deposit') group.deposits++;
+    else group.withdrawals++;
+  }
+  return [...groups.values()];
+}

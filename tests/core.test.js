@@ -114,3 +114,25 @@ test('journal survives JSON persistence with item metadata and stable UTC/KST ti
   assert.deepEqual(JSON.parse(saved).entries[0], record);
   assert.equal(koreaTime(record.time), '2026-11-14 09:00:00 KST');
 });
+
+test('history groups completed transfers by stable player ID; opens and errors are excluded', async () => {
+  const { groupByPlayer } = await import('../behavior_pack/scripts/core.js');
+  const transfer = { ...entry(), action: 'deposit', amount: 2, item: { type: 'minecraft:diamond' } };
+  const records = [
+    transfer,
+    { ...transfer, time: '2026-11-14T00:00:02.000Z', player: '바뀐닉네임', action: 'withdraw' },
+    { ...transfer, playerId: 'p2', player: '다른사람' },
+    entry(),
+    { ...transfer, status: 'pending' },
+    { ...transfer, status: 'failed' },
+    { ...transfer, amount: 0 },
+  ];
+  const grouped = groupByPlayer(records);
+  assert.equal(grouped.length, 2);
+  assert.equal(grouped[0].id, 'p1');
+  assert.equal(grouped[0].name, '바뀐닉네임');
+  assert.equal(grouped[0].deposits, 1);
+  assert.equal(grouped[0].withdrawals, 1);
+  assert.equal(grouped[0].entries.length, 2);
+  assert.equal(records.length, 7);
+});

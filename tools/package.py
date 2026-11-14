@@ -5,7 +5,9 @@ import zipfile
 
 root = Path(__file__).resolve().parents[1]
 pack = root / 'behavior_pack'
-output = root / 'dist' / 'ChestHistory-1.0.0.mcpack'
+manifest = json.loads((pack / 'manifest.json').read_text())
+version = '.'.join(map(str, manifest['header']['version']))
+output = root / 'dist' / f'ChestHistory-{version}.mcpack'
 output.parent.mkdir(exist_ok=True)
 files = sorted(p for p in pack.rglob('*') if p.is_file())
 with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:

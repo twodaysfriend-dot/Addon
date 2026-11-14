@@ -13,6 +13,8 @@ assert.match(script.uuid, uuid);
 assert.notEqual(script.uuid, manifest.header.uuid);
 assert.deepEqual(manifest.header.min_engine_version, [1, 21, 90]);
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+assert.deepEqual(manifest.header.version, pkg.version.split('.').map(Number));
+assert.deepEqual(script.version, manifest.header.version);
 for (const dependency of manifest.dependencies) {
   assert.equal(dependency.version, pkg.devDependencies[dependency.module_name]);
 }

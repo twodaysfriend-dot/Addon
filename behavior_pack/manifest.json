@@ -2,22 +2,40 @@
   "format_version": 2,
   "header": {
     "name": "상자 이용 기록",
-    "description": "상자 열람·입출고 기록과 관리자 조회. 전용 보관함 UI 사용.",
+    "description": "상자 소유자·폭발 보호, 플레이어별 입출고 기록 조회. 전용 보관함 UI 사용.",
     "uuid": "196b54ec-771e-4a47-8059-38e105673d6b",
-    "version": [1, 0, 0],
-    "min_engine_version": [1, 21, 90]
+    "version": [
+      1,
+      1,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      21,
+      90
+    ]
   },
   "modules": [
     {
       "type": "script",
       "language": "javascript",
       "uuid": "7fd64adf-8d36-48d2-97ee-15fd9267ed21",
-      "version": [1, 0, 0],
+      "version": [
+        1,
+        1,
+        0
+      ],
       "entry": "scripts/main.js"
     }
   ],
   "dependencies": [
-    { "module_name": "@minecraft/server", "version": "2.0.0" },
-    { "module_name": "@minecraft/server-ui", "version": "2.0.0" }
+    {
+      "module_name": "@minecraft/server",
+      "version": "2.0.0"
+    },
+    {
+      "module_name": "@minecraft/server-ui",
+      "version": "2.0.0"
+    }
   ]
 }
