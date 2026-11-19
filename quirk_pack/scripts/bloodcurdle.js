@@ -1,47 +1,36 @@
-import { EntityDamageCause, system, world } from '@minecraft/server';
-
-const SWORD = 'chesthistory:stain_sword';
+export const BLOODCURDLE_COOLDOWN = 300;
 const MARK_TICKS = 200;
 const EFFECT_TICKS = 80;
-const COOLDOWN_TICKS = 300;
 
+/** @typedef {import('@minecraft/server').Entity} Entity */
 /** @type {Map<string, { targetId: string, expires: number }>} */
 const marks = new Map();
-/** @type {Map<string, number>} */
-const cooldowns = new Map();
 
-world.afterEvents.entityHurt.subscribe(({ hurtEntity, damage, damageSource }) => {
-  const attacker = damageSource.damagingEntity;
-  if (damageSource.cause !== EntityDamageCause.entityAttack ||
-      damage <= 0 || !attacker?.isValid || attacker.typeId !== 'minecraft:player' ||
-      !hurtEntity.isValid || hurtEntity.id === attacker.id ||
-      (hurtEntity.getComponent('minecraft:health')?.currentValue ?? 0) <= 0) return;
-
-  const player = /** @type {import('@minecraft/server').Player} */ (attacker);
-  const heldItem = player.getComponent('minecraft:inventory')?.container?.getItem(player.selectedSlotIndex);
-  if (heldItem?.typeId !== SWORD) return;
-
-  const now = system.currentTick;
+/** @param {Entity} attacker @param {Entity} target @param {number} now */
+export function hasBloodMark(attacker, target, now) {
   const mark = marks.get(attacker.id);
-  if (!attacker.isSneaking || mark?.targetId !== hurtEntity.id || mark.expires <= now) {
-    marks.set(attacker.id, { targetId: hurtEntity.id, expires: now + MARK_TICKS });
-    return;
-  }
-  if ((cooldowns.get(attacker.id) ?? 0) > now) return;
+  return mark?.targetId === target.id && mark.expires > now;
+}
 
-  const effect = hurtEntity.addEffect('slowness', EFFECT_TICKS, { amplifier: 9, showParticles: true });
-  if (!effect) return;
+/** @param {Entity} attacker @param {Entity} target */
+export function paralyze(attacker, target) {
+  if (!target.addEffect('slowness', EFFECT_TICKS, { amplifier: 9, showParticles: true })) return false;
   marks.delete(attacker.id);
-  cooldowns.set(attacker.id, now + COOLDOWN_TICKS);
-  player.sendMessage('§c[응혈]§r 발동! 대상의 이동이 4초 동안 크게 느려집니다.');
-});
+  return true;
+}
 
-system.runInterval(() => {
-  const now = system.currentTick;
+/** @param {Entity} attacker @param {Entity} target @param {number} now @param {boolean} ready */
+export function bloodcurdle(attacker, target, now, ready) {
+  if (!attacker.isSneaking || !hasBloodMark(attacker, target, now)) {
+    marks.set(attacker.id, { targetId: target.id, expires: now + MARK_TICKS });
+    return false;
+  }
+  return ready && paralyze(attacker, target);
+}
+
+/** @param {number} now */
+export function expireMarks(now) {
   for (const [id, mark] of marks) {
     if (mark.expires <= now) marks.delete(id);
   }
-  for (const [id, expires] of cooldowns) {
-    if (expires <= now) cooldowns.delete(id);
-  }
-}, 200);
+}

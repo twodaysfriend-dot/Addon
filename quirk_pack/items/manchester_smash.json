@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "mha:manchester_smash",
+      "menu_category": { "category": "items" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "원포올 · 맨체스터 스매시" },
+      "minecraft:icon": { "textures": { "default": "feather" } },
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "mha:jet_burn",
+      "menu_category": { "category": "items" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "창염 · 제트 번" },
+      "minecraft:icon": { "textures": { "default": "blaze_rod" } },
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

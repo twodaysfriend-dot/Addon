@@ -1,12 +1,12 @@
 {
   "format_version": 2,
   "header": {
-    "name": "나히아 개성: 스테인의 응혈",
-    "description": "스테인의 검으로 대상을 베어 응혈 개성을 발동하세요.",
+    "name": "나히아 개성",
+    "description": "스테인의 검과 10가지 개성 및 필살기를 추가합니다.",
     "uuid": "ac432efe-42b4-4cec-a8e4-aa59373dc606",
     "version": [
       1,
-      0,
+      3,
       0
     ],
     "min_engine_version": [
@@ -21,7 +21,7 @@
       "uuid": "07f04a7c-6d6b-4f1b-ae7b-35fb2beb0729",
       "version": [
         1,
-        0,
+        3,
         0
       ]
     },
@@ -31,16 +31,24 @@
       "uuid": "79c58009-fd15-4ee5-83a8-10df5e458390",
       "version": [
         1,
-        0,
+        3,
         0
       ],
-      "entry": "scripts/bloodcurdle.js"
+      "entry": "scripts/main.js"
     }
   ],
   "dependencies": [
     {
       "module_name": "@minecraft/server",
       "version": "2.0.0"
+    },
+    {
+      "uuid": "074e6b27-c951-499a-a260-6bbf8659424d",
+      "version": [
+        1,
+        3,
+        0
+      ]
     }
   ]
 }

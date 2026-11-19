@@ -1,0 +1,9 @@
+{
+  "resource_pack_name": "mha_quirks",
+  "texture_name": "atlas.items",
+  "texture_data": {
+    "mha_stain_sword": {
+      "textures": "textures/items/stain_sword"
+    }
+  }
+}

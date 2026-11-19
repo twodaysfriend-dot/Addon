@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "mha:one_for_all",
+      "menu_category": { "category": "items" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "원포올" },
+      "minecraft:icon": { "textures": { "default": "nether_star" } },
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

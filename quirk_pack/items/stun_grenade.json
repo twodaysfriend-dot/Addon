@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "mha:stun_grenade",
+      "menu_category": { "category": "items" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "폭파 · 스턴 그레네이드" },
+      "minecraft:icon": { "textures": { "default": "glowstone_dust" } },
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

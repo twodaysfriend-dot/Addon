@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "mha:blueflame",
+      "menu_category": { "category": "items" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "창염" },
+      "minecraft:icon": { "textures": { "default": "blaze_powder" } },
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

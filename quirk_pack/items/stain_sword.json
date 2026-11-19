@@ -7,7 +7,7 @@
     },
     "components": {
       "minecraft:display_name": { "value": "스테인의 검" },
-      "minecraft:icon": { "textures": { "default": "iron_sword" } },
+      "minecraft:icon": { "textures": { "default": "mha_stain_sword" } },
       "minecraft:hand_equipped": true,
       "minecraft:max_stack_size": 1,
       "minecraft:damage": 6,

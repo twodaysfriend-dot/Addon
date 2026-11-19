@@ -6,8 +6,9 @@ export const world = {
     playerBreakBlock: { subscribe(handler) { state.before.playerBreakBlock = handler; } },
     explosion: { subscribe(handler) { state.before.explosion = handler; } },
   },
-  afterEvents: Object.fromEntries(['playerPlaceBlock', 'playerBreakBlock', 'pistonActivate', 'entityHitBlock', 'entityHurt', 'playerLeave'].map(name =>
+  afterEvents: Object.fromEntries(['playerPlaceBlock', 'playerBreakBlock', 'pistonActivate', 'entityHitBlock', 'entityHurt', 'playerButtonInput', 'playerLeave'].map(name =>
     [name, { subscribe(handler) { state.after[name] = handler; } }])),
+  gameRules: { pvp: true },
   getAllPlayers: () => state.players,
   getDimension: id => state.players.find(p => p.dimension.id === id)?.dimension,
   getDynamicProperty: key => state.properties.get(key),
@@ -26,7 +27,9 @@ export const system = {
   run(callback) { state.scheduled.push(callback); },
   runInterval(callback) { state.intervals.push(callback); },
 };
-export const EntityDamageCause = { entityAttack: 'entityAttack', projectile: 'projectile' };
+export const EntityDamageCause = { entityAttack: 'entityAttack', entityExplosion: 'entityExplosion', magic: 'magic', fire: 'fire', projectile: 'projectile' };
+export const ButtonState = { Pressed: 'Pressed', Released: 'Released' };
+export const InputButton = { Sneak: 'Sneak', Jump: 'Jump' };
 export const GameMode = { Spectator: 'Spectator' };
 export const BlockTypes = { get(type) { return ['minecraft:chest', 'minecraft:stone'].includes(type) ? { id: type } : undefined; } };
 
@@ -49,6 +52,7 @@ export class ModalFormData extends Form {}
 export function fixture({ double = false } = {}) {
   for (const player of state.players) state.after.playerLeave?.({ playerId: player.id });
   state.tick += 100;
+  world.gameRules.pvp = true;
   state.properties.clear();
   state.scheduled.length = state.forms.length = state.answers.length = 0;
   state.failPending = state.failCompletion = false;
@@ -69,6 +73,7 @@ export function fixture({ double = false } = {}) {
     getComponent() { return { container: inv }; },
     sendMessage(message) { this.messages.push(message); },
   };
+  player.onScreenDisplay = { setActionBar: message => player.messages.push(message) };
   state.players = [player];
   return { player, chest, inv, blocks };
 }

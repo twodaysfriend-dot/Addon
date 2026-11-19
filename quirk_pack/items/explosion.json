@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "mha:explosion",
+      "menu_category": { "category": "items" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "폭파" },
+      "minecraft:icon": { "textures": { "default": "fireball" } },
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

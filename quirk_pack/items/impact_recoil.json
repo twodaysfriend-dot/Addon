@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "mha:impact_recoil",
+      "menu_category": { "category": "items" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "올포원 · 충격 반전" },
+      "minecraft:icon": { "textures": { "default": "ghast_tear" } },
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

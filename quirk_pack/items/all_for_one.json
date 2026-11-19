@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "mha:all_for_one",
+      "menu_category": { "category": "items" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "올포원" },
+      "minecraft:icon": { "textures": { "default": "ender_pearl" } },
+      "minecraft:max_stack_size": 1
+    }
+  }
+}

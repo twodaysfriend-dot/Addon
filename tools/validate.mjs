@@ -5,6 +5,16 @@ import { resolve, dirname, sep } from 'node:path';
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const packUuids = new Set();
+const resource = JSON.parse(readFileSync('quirk_resources/manifest.json', 'utf8'));
+assert.equal(resource.format_version, 2);
+assert.deepEqual(resource.header.min_engine_version, [1, 21, 90]);
+assert.deepEqual(resource.modules.map(module => module.type), ['resources']);
+for (const part of [resource.header, ...resource.modules]) {
+  assert.match(part.uuid, uuid);
+  assert.ok(!packUuids.has(part.uuid), `Duplicate pack UUID: ${part.uuid}`);
+  packUuids.add(part.uuid);
+  assert.deepEqual(part.version, resource.header.version);
+}
 
 for (const directory of ['behavior_pack', 'quirk_pack']) {
   const root = resolve(directory);
@@ -13,6 +23,10 @@ for (const directory of ['behavior_pack', 'quirk_pack']) {
   assert.deepEqual(manifest.header.min_engine_version, [1, 21, 90]);
   if (directory === 'behavior_pack') {
     assert.deepEqual(manifest.header.version, pkg.version.split('.').map(Number));
+  } else {
+    assert.deepEqual(manifest.header.version, resource.header.version);
+    const linkedPacks = manifest.dependencies.filter(dep => Object.hasOwn(dep, 'uuid'));
+    assert.deepEqual(linkedPacks, [{ uuid: resource.header.uuid, version: resource.header.version }]);
   }
   for (const part of [manifest.header, ...manifest.modules]) {
     assert.match(part.uuid, uuid);
@@ -21,6 +35,7 @@ for (const directory of ['behavior_pack', 'quirk_pack']) {
     assert.deepEqual(part.version, manifest.header.version);
   }
   for (const dependency of manifest.dependencies) {
+    if (directory === 'quirk_pack' && dependency.uuid === resource.header.uuid) continue;
     assert.ok(Object.hasOwn(pkg.devDependencies, dependency.module_name), `Unexpected dependency: ${JSON.stringify(dependency)}`);
     assert.equal(dependency.version, pkg.devDependencies[dependency.module_name]);
   }
