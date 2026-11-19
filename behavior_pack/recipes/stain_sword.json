@@ -1,0 +1,15 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:recipe_shaped": {
+    "description": { "identifier": "chesthistory:stain_sword" },
+    "tags": ["crafting_table"],
+    "pattern": [" R ", " I ", " S "],
+    "key": {
+      "R": { "item": "minecraft:redstone" },
+      "I": { "item": "minecraft:iron_ingot" },
+      "S": { "item": "minecraft:stick" }
+    },
+    "unlock": [{ "item": "minecraft:redstone" }],
+    "result": { "item": "chesthistory:stain_sword", "count": 1 }
+  }
+}

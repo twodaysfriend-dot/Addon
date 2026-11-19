@@ -1,0 +1,17 @@
+{
+  "format_version": "1.21.90",
+  "minecraft:item": {
+    "description": {
+      "identifier": "chesthistory:stain_sword",
+      "menu_category": { "category": "equipment", "group": "minecraft:itemGroup.name.sword" }
+    },
+    "components": {
+      "minecraft:display_name": { "value": "스테인의 검" },
+      "minecraft:icon": { "textures": { "default": "iron_sword" } },
+      "minecraft:hand_equipped": true,
+      "minecraft:max_stack_size": 1,
+      "minecraft:damage": 6,
+      "minecraft:durability": { "max_durability": 500 }
+    }
+  }
+}

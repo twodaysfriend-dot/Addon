@@ -6,7 +6,7 @@ export const world = {
     playerBreakBlock: { subscribe(handler) { state.before.playerBreakBlock = handler; } },
     explosion: { subscribe(handler) { state.before.explosion = handler; } },
   },
-  afterEvents: Object.fromEntries(['playerPlaceBlock', 'playerBreakBlock', 'pistonActivate', 'entityHitBlock', 'playerLeave'].map(name =>
+  afterEvents: Object.fromEntries(['playerPlaceBlock', 'playerBreakBlock', 'pistonActivate', 'entityHitBlock', 'entityHurt', 'playerLeave'].map(name =>
     [name, { subscribe(handler) { state.after[name] = handler; } }])),
   getAllPlayers: () => state.players,
   getDimension: id => state.players.find(p => p.dimension.id === id)?.dimension,
@@ -26,6 +26,7 @@ export const system = {
   run(callback) { state.scheduled.push(callback); },
   runInterval(callback) { state.intervals.push(callback); },
 };
+export const EntityDamageCause = { entityAttack: 'entityAttack', projectile: 'projectile' };
 export const GameMode = { Spectator: 'Spectator' };
 export const BlockTypes = { get(type) { return ['minecraft:chest', 'minecraft:stone'].includes(type) ? { id: type } : undefined; } };
 

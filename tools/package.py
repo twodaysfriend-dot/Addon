@@ -16,6 +16,6 @@ with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
 with zipfile.ZipFile(output) as archive:
     assert archive.testzip() is None
     manifest = json.loads(archive.read('manifest.json'))
-    assert manifest['modules'][0]['entry'] in archive.namelist()
+    assert next(module['entry'] for module in manifest['modules'] if module['type'] == 'script') in archive.namelist()
     assert all(not name.startswith(('node_modules/', '/')) for name in archive.namelist())
 print(f'Built and verified {output} ({len(files)} files, {output.stat().st_size} bytes)')
