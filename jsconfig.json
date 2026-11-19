@@ -10,5 +10,5 @@
     "lib": ["ES2022"],
     "skipLibCheck": true
   },
-  "include": ["behavior_pack/scripts/**/*.js", "tools/bedrock-globals.d.ts"]
+  "include": ["behavior_pack/scripts/**/*.js", "quirk_pack/scripts/**/*.js", "tools/bedrock-globals.d.ts"]
 }

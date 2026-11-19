@@ -2,11 +2,11 @@
   "format_version": 2,
   "header": {
     "name": "상자 이용 기록",
-    "description": "바닐라 상자 사용, 관리자 웅크림+막대기 공격 조회, 입출고 변화 관찰 및 상자 보호. 스테인의 검과 응혈 능력.",
+    "description": "바닐라 상자 사용, 관리자 웅크림+막대기 공격 조회, 입출고 변화 관찰 및 상자 보호.",
     "uuid": "196b54ec-771e-4a47-8059-38e105673d6b",
     "version": [
       1,
-      3,
+      4,
       0
     ],
     "min_engine_version": [
@@ -17,21 +17,12 @@
   },
   "modules": [
     {
-      "type": "data",
-      "uuid": "8aed9b3e-4165-4ec3-8494-4af5b25a1a91",
-      "version": [
-        1,
-        3,
-        0
-      ]
-    },
-    {
       "type": "script",
       "language": "javascript",
       "uuid": "7fd64adf-8d36-48d2-97ee-15fd9267ed21",
       "version": [
         1,
-        3,
+        4,
         0
       ],
       "entry": "scripts/main.js"

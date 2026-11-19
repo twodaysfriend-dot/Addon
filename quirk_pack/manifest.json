@@ -1,0 +1,46 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "나히아 개성: 스테인의 응혈",
+    "description": "스테인의 검으로 대상을 베어 응혈 개성을 발동하세요.",
+    "uuid": "ac432efe-42b4-4cec-a8e4-aa59373dc606",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      21,
+      90
+    ]
+  },
+  "modules": [
+    {
+      "type": "data",
+      "uuid": "07f04a7c-6d6b-4f1b-ae7b-35fb2beb0729",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "script",
+      "language": "javascript",
+      "uuid": "79c58009-fd15-4ee5-83a8-10df5e458390",
+      "version": [
+        1,
+        0,
+        0
+      ],
+      "entry": "scripts/bloodcurdle.js"
+    }
+  ],
+  "dependencies": [
+    {
+      "module_name": "@minecraft/server",
+      "version": "2.0.0"
+    }
+  ]
+}

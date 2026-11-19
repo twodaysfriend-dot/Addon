@@ -1,4 +1,3 @@
-import './bloodcurdle.js';
 import { world, system, GameMode } from '@minecraft/server';
 import { ActionFormData } from '@minecraft/server-ui';
 import { ADMIN_TAG, PREFIX, MAX_CHESTS, groupByPlayer, appendEntry, koreaTime } from './core.js';
